@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Pipeline Quality Dashboard</title>
+  <!-- Chart.js for data visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --border: #334155;
+      --clean-color: #10b981;
+      --outlier-color: #f59e0b;
+      --failed-color: #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    body { background-color: var(--bg-color); color: var(--text-main); min-height: 100vh; padding: 20px; }
+
+    header { margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+    header h1 { font-size: 1.5rem; color: var(--accent); }
+    header p { color: var(--text-muted); font-size: 0.9rem; margin-top: 4px; }
+
+    .layout { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+
+    /* Control Panel Sidebar */
+    .panel { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+    .panel h2 { font-size: 1.1rem; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px; }
+    
+    .file-dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 6px;
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .file-dropzone:hover { border-color: var(--accent); }
+    .file-dropzone input { display: none; }
+
+    input[type="range"] { width: 100%; accent-color: var(--accent); }
+    
+    button.btn {
+      width: 100%;
+      padding: 10px;
+      background: var(--accent);
+      color: #0f172a;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button.btn:hover { opacity: 0.9; }
+
+    /* Main Dashboard Section */
+    .dashboard { display: flex; flex-direction: column; gap: 20px; }
+
+    /* Metric Cards Grid */
+    .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .metric-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .metric-card span { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; }
+    .metric-card h3 { font-size: 1.8rem; margin-top: 4px; }
+    .metric-card.clean h3 { color: var(--clean-color); }
+    .metric-card.outlier h3 { color: var(--outlier-color); }
+    .metric-card.failed h3 { color: var(--failed-color); }
+
+    /* Chart Container */
+    .chart-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; height: 380px; }
+
+    /* Quarantine Data Table */
+    .table-container { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; max-height: 260px; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
+    th, td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    th { color: var(--text-muted); font-weight: 600; }
+    
+    .badge { padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+    .badge.Clean { background: rgba(16, 185, 129, 0.2); color: var(--clean-color); }
+    .badge.Outlier { background: rgba(245, 158, 11, 0.2); color: var(--outlier-color); }
+    .badge.Failed { background: rgba(239, 68, 68, 0.2); color: var(--failed-color); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1> Automated Data Quality & Outlier Detection Pipeline</h1>
+    <p>FastAPI Backend | Pandera Schema Validation | Isolation Forest ML</p>
+  </header>
+
+  <div class="layout">
+    <!-- Left Configuration Panel -->
+    <aside class="panel">
+      <h2>Pipeline Configuration</h2>
+      
+      <div class="form-group">
+        <label>Upload Dataset (CSV)</label>
+        <div class="file-dropzone" onclick="document.getElementById('csv-file').click()">
+          <span id="file-label">Click or Drop CSV File</span>
+          <input type="file" id="csv-file" accept=".csv" onchange="updateFileName(this)">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Outlier Contamination Rate: <b id="rate-val">0.05</b></label>
+        <input type="range" id="contamination" min="0.01" max="0.20" step="0.01" value="0.05" oninput="document.getElementById('rate-val').innerText = this.value">
+      </div>
+
+      <button class="btn" onclick="runPipeline()">Execute Pipeline</button>
+    </aside>
+    <!-- CHANGE THIS: -->
+<input type="file" id="csv-file" accept=".csv" onchange="updateFileName(this)">
+
+<!-- TO THIS: -->
+<input type="file" id="csv-file" accept=".csv" onchange="updateFileName(this); runPipeline();">
+    <!-- Right Dashboard View -->
+    <main class="dashboard">
+      <!-- Metric Cards -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <span>Total Records</span>
+          <h3 id="m-total">-</h3>
+        </div>
+        <div class="metric-card clean">
+          <span>Pass Rate</span>
+          <h3 id="m-pass">-</h3>
+        </div>
+        <div class="metric-card outlier">
+          <span>Outliers Flagged</span>
+          <h3 id="m-outliers">-</h3>
+        </div>
+        <div class="metric-card failed">
+          <span>Validation Errors</span>
+          <h3 id="m-failed">-</h3>
+        </div>
+      </div>
+
+      <!-- Scatter Plot Chart -->
+      <div class="chart-box">
+        <canvas id="scatterChart"></canvas>
+      </div>
+
+      <!-- Quarantined / Flagged Rows Table -->
+      <div class="table-container">
+        <h3 style="font-size:0.95rem; margin-bottom:12px; color:var(--text-muted);">Quarantined Records Log</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Row ID</th>
+              <th>Status</th>
+              <th>Anomaly Score</th>
+              <th>Sample Values</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+            <tr><td colspan="4" style="color:var(--text-muted);">Run pipeline to inspect flagged records.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    let scatterChart = null;
+
+    function updateFileName(input) {
+      if (input.files.length > 0) {
+        document.getElementById('file-label').innerText = input.files[0].name;
+      }
+    }
+
+    async function runPipeline() {
+      const fileInput = document.getElementById('csv-file');
+      if (!fileInput.files.length) {
+        alert("Please upload a CSV file first!");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      formData.append('contamination', document.getElementById('contamination').value);
+
+      try {
+        const response = await fetch('http://127.0.0.1:8000/api/process-data', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          alert("Error: " + err.detail);
+          return;
+        }
+
+        const result = await response.json();
+        updateDashboard(result);
+      } catch (err) {
+        alert("Failed to connect to FastAPI backend. Ensure app.py is running on port 8000.");
+      }
+    }
+
+    function updateDashboard(payload) {
+      const summary = payload.summary;
+      const data = payload.data;
+
+      // Update KPI Cards
+      document.getElementById('m-total').innerText = summary.total_rows;
+      document.getElementById('m-pass').innerText = summary.pass_rate + "%";
+      document.getElementById('m-outliers').innerText = summary.outlier_count;
+      document.getElementById('m-failed').innerText = summary.validation_failed_count;
+
+      // Prepare Scatter Chart Data
+      const cleanData = data.filter(d => d.status === 'Clean');
+      const outlierData = data.filter(d => d.status === 'Outlier Flagged');
+      const failedData = data.filter(d => d.status === 'Validation Failed');
+
+      renderChart(cleanData, outlierData, failedData, summary.x_axis_col, summary.y_axis_col);
+      renderTable(data.filter(d => d.status !== 'Clean'));
+    }
+
+    function renderChart(clean, outliers, failed, xCol, yCol) {
+      const ctx = document.getElementById('scatterChart').getContext('2d');
+      if (scatterChart) scatterChart.destroy();
+
+      scatterChart = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+          datasets: [
+            { label: 'Clean Data', data: clean, backgroundColor: '#10b981' },
+            { label: 'Outlier Flagged', data: outliers, backgroundColor: '#f59e0b', pointRadius: 6 },
+            { label: 'Validation Failed', data: failed, backgroundColor: '#ef4444', pointRadius: 6, pointStyle: 'rectRot' }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { title: { display: true, text: xCol, color: '#94a3b8' }, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+            y: { title: { display: true, text: yCol, color: '#94a3b8' }, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+          },
+          plugins: {
+            legend: { labels: { color: '#f8fafc' } }
+          }
+        }
+      });
+    }
+
+    function renderTable(quarantinedRows) {
+      const tbody = document.getElementById('table-body');
+      tbody.innerHTML = '';
+
+      if (quarantinedRows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="color:#10b981;">No flagged records! All rows passed validation.</td></tr>';
+        return;
+      }
+
+      quarantinedRows.forEach(row => {
+        const tr = document.createElement('tr');
+        const badgeClass = row.status.includes('Failed') ? 'Failed' : 'Outlier';
+        
+        tr.innerHTML = `
+          <td>#${row.id}</td>
+          <td><span class="badge ${badgeClass}">${row.status}</span></td>
+          <td>${row.anomaly_score}</td>
+          <td style="color:#94a3b8;">${JSON.stringify(row.raw_data).substring(0, 50)}...</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+  </script>
+</body>
+</html>
